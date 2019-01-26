@@ -269,6 +269,8 @@ while run:
         window.overrideredirect(True)
         window.focus_set()  # <-- move focus to this widget
         window.bind("<Escape>", lambda e: e.widget.quit())
+        window.resizable(False, False)
+        window.iconbitmap('favicon.ico')
         w.pack()
         window.mainloop()
     if keyboard.is_pressed("f1"):
