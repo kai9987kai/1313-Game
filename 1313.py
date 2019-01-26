@@ -157,11 +157,12 @@ class enemy(object):
             self.visible = True
             self.x = random.randint(450, 500)
 
-
 def redrawGameWindow():
     win.blit(bg, (0, 0))
     text = font.render('Score: ' + str(score), 1, (0, 0, 0))
     win.blit(text, (350, 10))
+    text2 = font.render('ESC key for pause', 1, (0, 0, 0))
+    win.blit(text2, (10, 10))
     man.draw(win)
     goblin.draw(win)
     for bullet in bullets:
@@ -255,6 +256,21 @@ while run:
         else:
             man.isJump = False
             man.jumpCount = 10
+    if keyboard.is_pressed("esc"):
+        window = Tk()
+        window.title("1313 - paused")
+        def clicked():
+            window.destroy()
+        btn = Button(window, text="Resume", command=clicked)
+        btn.pack()
+        w = Label(window, text="PRESS RESUME TO CONTINUE")
+        window.attributes("-topmost", True)
+        window.geometry("+300+300")
+        window.overrideredirect(True)
+        window.focus_set()  # <-- move focus to this widget
+        window.bind("<Escape>", lambda e: e.widget.quit())
+        w.pack()
+        window.mainloop()
     if keyboard.is_pressed("f1"):
         window = Tk()
         window.title("1313 About Page")
