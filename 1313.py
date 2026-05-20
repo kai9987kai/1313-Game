@@ -861,6 +861,10 @@ class Game:
         self.pending_contracts: list[dict[str, object]] = []
         self.next_level_index = 0
         self.fullscreen = False
+        self.world_surface = pygame.Surface((WIDTH, HEIGHT))
+        self.floating_texts: list[FloatingText] = []
+        self.shake = 0.0
+        self.stats = RunStats()
         self.mode = "menu"
         self.running = True
         self.level_index = 0
@@ -898,6 +902,7 @@ class Game:
         self.bullets: list[Bullet] = []
         self.particles: list[Particle] = []
         self.noise_pings: list[NoisePing] = []
+        self.floating_texts = []
         self.director = Director(spawn_timer=self.rng.uniform(DIRECTOR_MIN_SPAWN_TIME, DIRECTOR_MAX_SPAWN_TIME))
         self.static_world = self.build_static_world()
         self.time_alive = 0.0
@@ -907,6 +912,7 @@ class Game:
             self.score = 0
             self.combo = 1
             self.combo_timer = 0.0
+            self.stats = RunStats()
         self.apply_player_mods()
 
     def restart(self) -> None:
@@ -921,6 +927,9 @@ class Game:
         self.active_contracts = []
         self.pending_contracts = []
         self.next_level_index = 0
+        self.stats = RunStats()
+        self.floating_texts = []
+        self.shake = 0.0
         self.mode = "playing"
         self.reset_level(0, keep_score=False)
 
@@ -1016,6 +1025,8 @@ class Game:
             return
         inputs = inputs or self.read_input()
         self.time_alive += dt
+        self.stats.time += dt
+        self.shake = max(0.0, self.shake - dt * 24)
         self.message_timer = max(0.0, self.message_timer - dt)
         self.combo_timer = max(0.0, self.combo_timer - dt)
         if self.combo_timer <= 0:
@@ -1032,6 +1043,7 @@ class Game:
         self.update_director(dt)
         self.update_noise_pings(dt)
         self.update_particles(dt)
+        self.update_floating_texts(dt)
         self.check_exit()
 
     def update_player(self, dt: float, inputs: InputState) -> None:
@@ -1183,15 +1195,18 @@ class Game:
                 radius=radius,
             )
         )
+        self.stats.shots += 1
         p.shot_cooldown = SHOT_COOLDOWN
         p.heat += SHOT_HEAT * float(self.mods.get("heat_gain", 1.0))
         self.emit_noise(p.rect.centerx, p.rect.centery, 220 if tier == "volatile" else 175, color)
         if tier == "volatile":
             p.vx -= p.facing * 42
             self.spawn_particles(p.rect.centerx + p.facing * 24, p.rect.centery, PALETTE["red"], 5)
+            self.add_shake(1.2)
         if p.heat >= 100:
             p.overheated = OVERHEAT_TIME
             p.heat = 100
+            self.stats.overheats += 1
             self.message = "Blaster overheated"
             self.message_timer = 1.2
 
@@ -1237,8 +1252,11 @@ class Game:
                 live_bullets.append(bullet)
             else:
                 self.assets.hit.play()
+                self.stats.hits += 1
                 self.spawn_particles(bullet.x, bullet.y, hit_enemy.color, 7)
                 self.player.focus = min(self.player.max_focus, self.player.focus + 8 + bullet.damage * 4)
+                self.add_floating_text(bullet.x, bullet.y - 10, f"-{bullet.damage}", hit_enemy.color)
+                self.add_shake(0.45 + bullet.damage * 0.25)
                 if hit_enemy.hit(bullet.damage):
                     self.enemy_defeated(hit_enemy)
                 if bullet.pierces > 0:
@@ -1250,10 +1268,13 @@ class Game:
     def enemy_defeated(self, enemy: Enemy) -> None:
         if enemy in self.enemies:
             self.enemies.remove(enemy)
+        self.stats.defeats += 1
         self.combo = min(5, self.combo + 1)
         self.combo_timer = 2.2
         self.player.focus = min(self.player.max_focus, self.player.focus + 18)
         self.score += int(enemy.score * self.combo * float(self.mods.get("score", 1.0)))
+        self.add_floating_text(enemy.rect.centerx, enemy.rect.top - 8, f"+{enemy.score * self.combo}", PALETTE["amber"])
+        self.add_shake(1.0)
         self.spawn_particles(enemy.rect.centerx, enemy.rect.centery, enemy.color, 18)
         self.emit_noise(enemy.rect.centerx, enemy.rect.centery, 210, enemy.color)
         if self.rng.random() < 0.28:
@@ -1282,12 +1303,15 @@ class Game:
             p.shield -= 1
         else:
             p.health -= amount
+            self.stats.damage_taken += amount
         p.invuln = 0.95
         p.vx = knockback
         p.vy = -240
         self.combo = 1
         self.combo_timer = 0.0
         self.spawn_particles(p.rect.centerx, p.rect.centery, PALETTE["red"], 12)
+        self.add_floating_text(p.rect.centerx, p.rect.top - 8, "-1", PALETTE["red"])
+        self.add_shake(2.0)
         self.message = "Hit"
         self.message_timer = 0.8
         if p.health <= 0:
@@ -1302,16 +1326,21 @@ class Game:
             if pickup.kind == "credit":
                 self.score += 75
                 self.message = "+75 credits"
+                self.add_floating_text(pickup.rect.centerx, pickup.rect.top - 8, "+75", PALETTE["amber"])
             elif pickup.kind == "coolant":
                 self.player.heat = max(0.0, self.player.heat - 55)
                 self.player.overheated = 0.0
                 self.message = "Coolant vented"
+                self.add_floating_text(pickup.rect.centerx, pickup.rect.top - 8, "cool", PALETTE["cyan"])
             elif pickup.kind == "med":
                 self.player.health = min(self.player.max_health, self.player.health + 1)
                 self.message = "Health restored"
+                self.add_floating_text(pickup.rect.centerx, pickup.rect.top - 8, "+hp", PALETTE["green"])
             elif pickup.kind == "shield":
                 self.player.shield = min(2, self.player.shield + 1)
                 self.message = "Shield charged"
+                self.add_floating_text(pickup.rect.centerx, pickup.rect.top - 8, "+sh", PALETTE["blue"])
+            self.stats.pickups += 1
             self.message_timer = 1.0
             self.spawn_particles(pickup.rect.centerx, pickup.rect.centery, PALETTE["text"], 8)
             self.pickups.remove(pickup)
@@ -1327,6 +1356,7 @@ class Game:
                     device.pulse = 0.28
                     target.stun_timer = max(target.stun_timer, 0.18)
                     self.spawn_particles(target.rect.centerx, target.rect.centery, PALETTE["blue"], 6)
+                    self.add_floating_text(target.rect.centerx, target.rect.top - 7, "zap", PALETTE["blue"])
                     if target.hit(1):
                         self.enemy_defeated(target)
 
@@ -1368,6 +1398,8 @@ class Game:
             self.director.pressure = max(0.12, self.director.pressure - 0.18)
             self.director.spawn_timer += 4.5
             self.score += 100
+            self.stats.devices += 1
+            self.add_floating_text(device.rect.centerx, device.rect.top - 10, "+relay", PALETTE["amber"])
             for enemy in self.enemies:
                 if abs(enemy.rect.centerx - device.rect.centerx) < 260:
                     enemy.stun_timer = max(enemy.stun_timer, 0.45)
@@ -1380,6 +1412,7 @@ class Game:
                 return
             device.cooldown = 5.0
             device.pulse = 0.7
+            self.stats.devices += 1
             self.player.heat = max(0.0, self.player.heat - 75)
             self.player.overheated = 0.0
             for enemy in list(self.enemies):
@@ -1388,6 +1421,8 @@ class Game:
                     if enemy.hit(1):
                         self.enemy_defeated(enemy)
             self.spawn_particles(device.rect.centerx, device.rect.centery, PALETTE["cyan"], 16)
+            self.add_floating_text(device.rect.centerx, device.rect.top - 10, "burst", PALETTE["cyan"])
+            self.add_shake(0.9)
             self.message = "Coolant burst"
         elif device.kind == "turret":
             if device.hacked:
@@ -1403,6 +1438,8 @@ class Game:
             device.cooldown = 0.25
             device.pulse = 0.5
             self.score += 75
+            self.stats.devices += 1
+            self.add_floating_text(device.rect.centerx, device.rect.top - 10, "+turret", PALETTE["blue"])
             self.message = "Turret converted"
         self.message_timer = 1.0
 
@@ -1423,9 +1460,12 @@ class Game:
                 enemy.hit_flash = 0.18
                 if enemy.hit(1):
                     self.enemy_defeated(enemy)
+                self.stats.hazards += 1
+                self.add_floating_text(enemy.rect.centerx, enemy.rect.top - 6, "hazard", PALETTE["red"])
                 triggered = True
             if triggered:
                 hazard.cooldown = 0.42
+                self.add_shake(0.75)
 
     def update_director(self, dt: float) -> None:
         p = self.player
@@ -1490,6 +1530,9 @@ class Game:
     def update_particles(self, dt: float) -> None:
         self.particles = [particle for particle in self.particles if particle.update(dt)]
 
+    def update_floating_texts(self, dt: float) -> None:
+        self.floating_texts = [text for text in self.floating_texts if text.update(dt)]
+
     def check_exit(self) -> None:
         if self.enemies or not self.player.rect.colliderect(self.exit_rect):
             return
@@ -1518,6 +1561,7 @@ class Game:
             else:
                 self.mods[key] = float(self.mods.get(key, 0.0)) + float(value)
         self.active_contracts.append(str(contract["name"]))
+        self.stats.contracts += 1
         self.pending_contracts = []
         self.reset_level(self.next_level_index, keep_score=True)
         self.mode = "playing"
@@ -1551,6 +1595,16 @@ class Game:
             self.noise_pings.pop(0)
         self.noise_pings.append(NoisePing(x, y, 10, radius, 0.62, color))
 
+    def add_floating_text(self, x: float, y: float, text: str, color: tuple[int, int, int]) -> None:
+        if len(self.floating_texts) >= 20:
+            self.floating_texts.pop(0)
+        self.floating_texts.append(FloatingText(x, y, text, color))
+
+    def add_shake(self, amount: float) -> None:
+        if self.reduced_motion:
+            return
+        self.shake = min(7.0, self.shake + amount)
+
     def build_static_world(self) -> pygame.Surface:
         surface = pygame.Surface((WIDTH, HEIGHT))
         surface.blit(self.assets.bg, (0, 0))
@@ -1569,7 +1623,19 @@ class Game:
         return surface
 
     def draw(self) -> None:
-        self.draw_world()
+        if self.shake > 0 and not self.reduced_motion:
+            self.world_surface.fill((0, 0, 0))
+            target = self.screen
+            self.screen = self.world_surface
+            self.draw_world()
+            self.screen = target
+            offset = (
+                self.rng.randint(-int(self.shake), int(self.shake)),
+                self.rng.randint(-int(self.shake), int(self.shake)),
+            )
+            self.screen.blit(self.world_surface, offset)
+        else:
+            self.draw_world()
         self.draw_hud()
         if self.mode == "menu":
             self.draw_menu()
@@ -1585,7 +1651,8 @@ class Game:
         elif self.mode == "game_over":
             self.draw_overlay("Run failed", "Enter to retry   Esc to quit")
         elif self.mode == "victory":
-            self.draw_overlay("Route secured", f"Final score {self.score}   Enter to replay")
+            rank = self.stats.rank(self.score, len(LEVELS))
+            self.draw_overlay("Route secured", f"Rank {rank}   Score {self.score}   Time {int(self.stats.time)}s")
         pygame.display.flip()
 
     def draw_world(self) -> None:
@@ -1649,6 +1716,14 @@ class Game:
         self.draw_player()
         for particle in self.particles:
             pygame.draw.circle(self.screen, particle.color, (int(particle.x), int(particle.y)), int(particle.radius))
+        for text in self.floating_texts:
+            alpha = max(0, min(255, int(255 * text.life / 0.9)))
+            label = self.small_font.render(text.text, True, text.color)
+            label.set_alpha(alpha)
+            shadow = self.small_font.render(text.text, True, (0, 0, 0))
+            shadow.set_alpha(alpha)
+            self.screen.blit(shadow, (int(text.x - label.get_width() / 2) + 1, int(text.y) + 1))
+            self.screen.blit(label, (int(text.x - label.get_width() / 2), int(text.y)))
 
     def draw_hazard(self, hazard: Hazard) -> None:
         active = hazard.active(self.time_alive)
@@ -1783,6 +1858,10 @@ class Game:
             self.draw_text(self.message, 18, 48, PALETTE["text"], self.font)
         elif self.director.event_timer > 0:
             self.draw_text(self.director.event, 18, 48, PALETTE["amber"], self.font)
+        else:
+            remaining = len(self.enemies)
+            objective = "Reach lift" if remaining == 0 else f"Clear patrols: {remaining} left"
+            self.draw_text(objective, 18, 48, PALETTE["muted"], self.small_font)
 
     def draw_menu(self) -> None:
         self.draw_overlay(
@@ -1832,6 +1911,15 @@ class Game:
         if footer:
             footer_surface = self.small_font.render(footer, True, PALETTE["amber"])
             self.screen.blit(footer_surface, (panel.centerx - footer_surface.get_width() // 2, panel.top + 176))
+        if self.mode == "victory":
+            lines = [
+                f"Defeats {self.stats.defeats}   Hits {self.stats.hits}/{max(1, self.stats.shots)}",
+                f"Damage {self.stats.damage_taken}   Devices {self.stats.devices}   Hazards {self.stats.hazards}",
+                "Enter to replay   Esc to quit",
+            ]
+            for index, line in enumerate(lines):
+                surface = self.small_font.render(line, True, PALETTE["muted"] if index < 2 else PALETTE["amber"])
+                self.screen.blit(surface, (panel.centerx - surface.get_width() // 2, panel.top + 158 + index * 22))
 
     def draw_text(
         self,
