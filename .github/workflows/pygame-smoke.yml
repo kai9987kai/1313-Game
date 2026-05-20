@@ -1,0 +1,29 @@
+name: Pygame Smoke Test
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  smoke:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    env:
+      SDL_AUDIODRIVER: dummy
+      SDL_VIDEODRIVER: dummy
+      PYGAME_HIDE_SUPPORT_PROMPT: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install dependencies
+        run: python -m pip install -r requirements.txt
+      - name: Compile
+        run: python -m py_compile 1313.py
+      - name: Import without starting game loop
+        run: python -c "import importlib.util, pathlib, sys; spec = importlib.util.spec_from_file_location('game1313_ci', pathlib.Path('1313.py').resolve()); module = importlib.util.module_from_spec(spec); sys.modules[spec.name] = module; spec.loader.exec_module(module); assert hasattr(module, 'Game'); assert module.pygame.get_init() is False"
+      - name: Run deterministic smoke test
+        run: python 1313.py --smoke-test

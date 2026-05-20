@@ -1,11 +1,46 @@
-# 1313
-This is a game inspired by the cancelled game 1313 and star wars comics project to make the project a reality its not very good but oh well!!
+# 1313: Underworld Run
 
-TO DO LIST:
+A compact Pygame action-platformer inspired by the cancelled underworld project. The game now has structured levels, platform flooring, patrol waves, pickups, dash movement, tactical scan/heat vent abilities, blaster heat tiers, a lightweight encounter Director, noise-reactive enemy behavior, health/shield systems, and in-game menu/pause/about screens.
 
-ADD FLOORING
+## Run
 
-MAKE NEW CHARACTER DESIGNS
+```powershell
+python -m pip install -r requirements.txt
+python .\1313.py
+```
 
-ADD LEVELS
+Use `--mute` if you want to start without audio.
+
+## Controls
+
+- `A` / `D` or arrow keys: move
+- `W` / up arrow: jump
+- `Space`: blaster
+- `Shift` or `X`: dash
+- `E`: tactical scan
+- `Q`: vent blaster heat
+- `P` or `Esc`: pause/resume
+- `F1`: about
+- `M`: mute
+- `H`: high contrast
+- `V`: reduced effects
+- `R`: restart
+
+## Test
+
+Run a deterministic headless smoke test:
+
+```powershell
+python .\1313.py --smoke-test
+```
+
+The smoke test initializes Pygame with dummy video/audio drivers, simulates movement, jumping, shooting, and dashing, then prints a JSON state snapshot with assertions.
+
+Optional frame count:
+
+```powershell
+python .\1313.py --smoke-test --frames 600
+```
+
+Background music is optional. If `music.ogg`, `music.mp3`, or the legacy MP3 is missing, the game runs without crashing.
 
