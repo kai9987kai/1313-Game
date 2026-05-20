@@ -10,6 +10,8 @@ Original prompt: innovate advance improve evole and expermiment and optermise us
 - Verified with `python -m py_compile 1313.py`, `python -B .\1313.py --smoke-test`, and an import-side-effect check (`Game` importable while `pygame_init` remains false). Also rendered and visually inspected a gameplay frame during development.
 - Second pass added heat-tier bullets, tactical scan, manual heat venting, noise pings that pull enemy investigation, adaptive Director reinforcements/drops, high-contrast and reduced-effects toggles, static world caching, particle caps, stronger smoke assertions, and expanded CI.
 - Visual QA caught a wrong enemy asset sequence (`R10.png`/`R11.png` fallback instead of `R10E.png`/`R11E.png`), fixed via the `load_sequence(..., suffix="E")` path. Standard and high-contrast/reduced-effects render passes were inspected after the fix.
+- Third pass added interactable devices (`F` for relays, turrets, coolant vents), timed hazards that affect player and enemies, and between-level contracts with persistent run modifiers. Smoke coverage now asserts device use, hazard impact, and contract acceptance.
+- Character art pass now generates higher-quality themed character frames in memory: armored underworld runner with helmet/visor/coat/gear and masked syndicate enemies with sharper silhouettes, faction accents, and grounded shadows. Original PNG assets remain untouched.
 
 ## TODO / Suggestions
 

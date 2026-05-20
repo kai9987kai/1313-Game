@@ -293,6 +293,22 @@ class Particle:
 
 
 @dataclass
+class FloatingText:
+    x: float
+    y: float
+    text: str
+    color: tuple[int, int, int]
+    life: float = 0.9
+    vy: float = -34.0
+
+    def update(self, dt: float) -> bool:
+        self.y += self.vy * dt
+        self.vy += 18 * dt
+        self.life -= dt
+        return self.life > 0
+
+
+@dataclass
 class Director:
     pressure: float = 0.42
     spawn_timer: float = 6.0
@@ -302,6 +318,31 @@ class Director:
     def set_event(self, text: str, seconds: float = 1.4) -> None:
         self.event = text
         self.event_timer = seconds
+
+
+@dataclass
+class RunStats:
+    time: float = 0.0
+    shots: int = 0
+    hits: int = 0
+    defeats: int = 0
+    damage_taken: int = 0
+    pickups: int = 0
+    devices: int = 0
+    hazards: int = 0
+    contracts: int = 0
+    overheats: int = 0
+
+    def rank(self, score: int, level_count: int) -> str:
+        grade_score = score + self.defeats * 90 + self.devices * 70 + self.hazards * 60
+        grade_score -= self.damage_taken * 180 + self.overheats * 70 + int(max(0, self.time - level_count * 70) * 2)
+        if grade_score >= 3600:
+            return "S"
+        if grade_score >= 2600:
+            return "A"
+        if grade_score >= 1750:
+            return "B"
+        return "C"
 
 
 @dataclass
@@ -372,6 +413,252 @@ def load_sequence(prefix: str, count: int, size: tuple[int, int], suffix: str = 
     return [load_image(f"{prefix}{i}{suffix}.png", size=size) for i in range(1, count + 1)]
 
 
+def outlined_sprite(source: pygame.Surface, color: tuple[int, int, int] = (4, 6, 9)) -> pygame.Surface:
+    outline = source.copy()
+    outline.fill((*color, 230), special_flags=pygame.BLEND_RGBA_MIN)
+    result = pygame.Surface(source.get_size(), pygame.SRCALPHA)
+    for dx, dy in ((-2, 0), (2, 0), (0, -2), (0, 2), (-1, -1), (1, -1), (-1, 1), (1, 1)):
+        result.blit(outline, (dx, dy))
+    result.blit(source, (0, 0))
+    return result
+
+
+def decorate_player_frame(source: pygame.Surface, facing: int, frame_index: int) -> pygame.Surface:
+    frame = outlined_sprite(source)
+    visor = PALETTE["cyan"]
+    armor = (46, 57, 67, 178)
+    trim = PALETTE["amber"]
+    dark = (9, 13, 19, 168)
+
+    backpack_x = 14 if facing > 0 else 42
+    pygame.draw.rect(frame, dark, (backpack_x, 20, 8, 25), border_radius=2)
+    pygame.draw.line(frame, visor, (backpack_x + 4, 23), (backpack_x + 4, 41), 2)
+
+    pygame.draw.polygon(frame, armor, [(22, 9), (40, 8), (45, 15), (41, 23), (23, 23), (18, 15)])
+    if facing > 0:
+        pygame.draw.line(frame, visor, (29, 15), (43, 15), 3)
+        pygame.draw.line(frame, (235, 248, 250), (39, 14), (43, 14), 1)
+    else:
+        pygame.draw.line(frame, visor, (21, 15), (36, 15), 3)
+        pygame.draw.line(frame, (235, 248, 250), (21, 14), (26, 14), 1)
+
+    pygame.draw.rect(frame, armor, (23, 26, 18, 15), border_radius=3)
+    pygame.draw.line(frame, trim, (24, 29), (40, 29), 2)
+    pygame.draw.line(frame, visor, (32, 31), (32, 39), 2)
+    pygame.draw.rect(frame, dark, (20, 42, 25, 5), border_radius=2)
+    pygame.draw.rect(frame, trim, (30, 42, 7, 5), border_radius=1)
+    pygame.draw.circle(frame, trim, (20, 28), 5)
+    pygame.draw.circle(frame, trim, (44, 28), 5)
+    pygame.draw.line(frame, armor, (19, 47), (16, 58), 4)
+    pygame.draw.line(frame, armor, (42, 47), (46, 58), 4)
+
+    if frame_index % 3 == 0:
+        glow = pygame.Surface(frame.get_size(), pygame.SRCALPHA)
+        pygame.draw.circle(glow, (*visor, 42), (32, 34), 23)
+        frame.blit(glow, (0, 0))
+    return frame
+
+
+def decorate_enemy_frame(source: pygame.Surface) -> pygame.Surface:
+    frame = outlined_sprite(source, (3, 7, 5))
+    armor = (22, 32, 26, 170)
+    acid = (151, 229, 83)
+    red = PALETTE["red"]
+    pygame.draw.polygon(frame, armor, [(20, 10), (40, 10), (46, 17), (40, 25), (21, 24), (16, 17)])
+    pygame.draw.line(frame, red, (22, 16), (42, 16), 3)
+    pygame.draw.line(frame, acid, (26, 28), (39, 42), 3)
+    pygame.draw.rect(frame, armor, (22, 26, 20, 17), border_radius=3)
+    pygame.draw.circle(frame, acid, (20, 30), 4)
+    pygame.draw.circle(frame, acid, (43, 30), 4)
+    pygame.draw.line(frame, (7, 12, 8), (18, 46), (15, 57), 4)
+    pygame.draw.line(frame, (7, 12, 8), (43, 46), (47, 57), 4)
+    return frame
+
+
+def _scale_points(points: Iterable[tuple[float, float]], scale: int) -> list[tuple[int, int]]:
+    return [(int(x * scale), int(y * scale)) for x, y in points]
+
+
+def _rect(x: float, y: float, w: float, h: float, scale: int) -> pygame.Rect:
+    return pygame.Rect(int(x * scale), int(y * scale), int(w * scale), int(h * scale))
+
+
+def _draw_line(
+    surface: pygame.Surface,
+    color: tuple[int, int, int] | tuple[int, int, int, int],
+    start: tuple[float, float],
+    end: tuple[float, float],
+    width: float,
+    scale: int,
+) -> None:
+    pygame.draw.line(
+        surface,
+        color,
+        (int(start[0] * scale), int(start[1] * scale)),
+        (int(end[0] * scale), int(end[1] * scale)),
+        max(1, int(width * scale)),
+    )
+
+
+def _glow(surface: pygame.Surface, center: tuple[float, float], radius: float, color: tuple[int, int, int], alpha: int, scale: int) -> None:
+    layer = pygame.Surface(surface.get_size(), pygame.SRCALPHA)
+    pygame.draw.circle(layer, (*color, alpha), (int(center[0] * scale), int(center[1] * scale)), int(radius * scale))
+    surface.blit(layer, (0, 0))
+
+
+def _downscale_sprite(surface: pygame.Surface, size: tuple[int, int]) -> pygame.Surface:
+    return pygame.transform.smoothscale(surface, size).convert_alpha()
+
+
+def generate_player_frame(index: int, facing: int) -> pygame.Surface:
+    output_facing = facing
+    facing = 1
+    scale = 4
+    canvas = pygame.Surface((PLAYER_SIZE[0] * scale, PLAYER_SIZE[1] * scale), pygame.SRCALPHA)
+    phase = math.sin(index / 9 * math.tau)
+    bob = phase * 1.4
+    stride = math.sin(index / 9 * math.tau) * 4.0
+
+    ink = (5, 8, 13, 255)
+    undersuit = (23, 29, 38, 255)
+    armor = (84, 94, 104, 255)
+    armor_dark = (42, 50, 61, 255)
+    cloth = (53, 41, 36, 245)
+    amber = PALETTE["amber"]
+    cyan = PALETTE["cyan"]
+    white = (229, 242, 244, 255)
+
+    _glow(canvas, (34, 28 + bob), 21, cyan, 22, scale)
+    pygame.draw.ellipse(canvas, (0, 0, 0, 92), _rect(17, 54, 33, 7, scale))
+
+    back_leg = 28 - stride * 0.45
+    front_leg = 36 + stride * 0.45
+    _draw_line(canvas, ink, (29, 41 + bob), (back_leg, 58), 6, scale)
+    _draw_line(canvas, ink, (38, 41 + bob), (front_leg, 58), 6, scale)
+    _draw_line(canvas, armor_dark, (29, 42 + bob), (back_leg, 57), 3, scale)
+    _draw_line(canvas, armor_dark, (38, 42 + bob), (front_leg, 57), 3, scale)
+    pygame.draw.rect(canvas, amber, _rect(back_leg - 3, 56, 9, 3, scale), border_radius=scale)
+    pygame.draw.rect(canvas, amber, _rect(front_leg - 3, 56, 9, 3, scale), border_radius=scale)
+
+    pygame.draw.polygon(
+        canvas,
+        cloth,
+        _scale_points([(20, 25 + bob), (45, 25 + bob), (50, 50), (41, 56), (33, 45), (24, 56), (15, 50)], scale),
+    )
+    pygame.draw.polygon(
+        canvas,
+        undersuit,
+        _scale_points([(23, 23 + bob), (43, 23 + bob), (46, 42), (38, 48), (28, 48), (20, 42)], scale),
+    )
+    pygame.draw.rect(canvas, armor, _rect(24, 27 + bob, 18, 15, scale), border_radius=3 * scale)
+    pygame.draw.polygon(canvas, armor_dark, _scale_points([(24, 27 + bob), (31, 25 + bob), (31, 42), (24, 42)], scale))
+    _draw_line(canvas, amber, (26, 32 + bob), (41, 32 + bob), 2, scale)
+    _draw_line(canvas, cyan, (33, 34 + bob), (33, 42 + bob), 1.7, scale)
+
+    backpack_x = 15 if facing > 0 else 43
+    pygame.draw.rect(canvas, ink, _rect(backpack_x, 24 + bob, 7, 23, scale), border_radius=2 * scale)
+    _draw_line(canvas, cyan, (backpack_x + 3.5, 27 + bob), (backpack_x + 3.5, 43 + bob), 1.7, scale)
+
+    arm_front_x = 45 if facing > 0 else 19
+    arm_back_x = 20 if facing > 0 else 44
+    _draw_line(canvas, armor_dark, (arm_back_x, 27 + bob), (arm_back_x - facing * 3, 42 + bob), 5, scale)
+    _draw_line(canvas, armor, (arm_front_x, 27 + bob), (arm_front_x + facing * 8, 39 + bob), 5, scale)
+    _draw_line(canvas, ink, (arm_front_x + facing * 7, 38 + bob), (arm_front_x + facing * 17, 37 + bob), 3, scale)
+    pygame.draw.circle(canvas, amber, (int((arm_front_x + facing * 18) * scale), int((37 + bob) * scale)), int(2.3 * scale))
+
+    pygame.draw.polygon(
+        canvas,
+        ink,
+        _scale_points([(22, 10 + bob), (32, 5 + bob), (43, 9 + bob), (48, 17 + bob), (43, 25 + bob), (23, 25 + bob), (17, 18 + bob)], scale),
+    )
+    pygame.draw.polygon(
+        canvas,
+        armor,
+        _scale_points([(24, 11 + bob), (33, 7 + bob), (42, 11 + bob), (45, 17 + bob), (41, 22 + bob), (24, 22 + bob), (21, 17 + bob)], scale),
+    )
+    if facing > 0:
+        visor_points = [(30, 15 + bob), (44, 15 + bob), (42, 19 + bob), (29, 19 + bob)]
+        shine = (40, 14 + bob, 43, 14 + bob)
+    else:
+        visor_points = [(20, 15 + bob), (35, 15 + bob), (36, 19 + bob), (22, 19 + bob)]
+        shine = (21, 14 + bob, 26, 14 + bob)
+    pygame.draw.polygon(canvas, cyan, _scale_points(visor_points, scale))
+    _draw_line(canvas, white, (shine[0], shine[1]), (shine[2], shine[3]), 1, scale)
+    pygame.draw.circle(canvas, amber, (int(26 * scale), int((23 + bob) * scale)), int(2 * scale))
+    pygame.draw.circle(canvas, amber, (int(40 * scale), int((23 + bob) * scale)), int(2 * scale))
+
+    sprite = _downscale_sprite(canvas, PLAYER_SIZE)
+    return sprite if output_facing > 0 else pygame.transform.flip(sprite, True, False)
+
+
+def generate_enemy_frame(index: int, facing: int) -> pygame.Surface:
+    scale = 4
+    canvas = pygame.Surface((ENEMY_SIZE[0] * scale, ENEMY_SIZE[1] * scale), pygame.SRCALPHA)
+    phase = math.sin(index / 11 * math.tau)
+    bob = phase * 1.0
+    stride = math.sin(index / 11 * math.tau) * 3.5
+
+    ink = (3, 8, 6, 255)
+    hide = (58, 89, 40, 255)
+    armor = (19, 31, 26, 245)
+    armor_light = (72, 94, 67, 255)
+    acid = (132, 241, 91, 255)
+    red = PALETTE["red"]
+    bone = (180, 198, 153, 255)
+
+    _glow(canvas, (32, 32 + bob), 19, acid[:3], 18, scale)
+    pygame.draw.ellipse(canvas, (0, 0, 0, 96), _rect(18, 55, 33, 7, scale))
+
+    _draw_line(canvas, ink, (28, 42 + bob), (27 - stride, 58), 6, scale)
+    _draw_line(canvas, ink, (38, 42 + bob), (39 + stride, 58), 6, scale)
+    _draw_line(canvas, hide, (28, 42 + bob), (27 - stride, 56), 3, scale)
+    _draw_line(canvas, hide, (38, 42 + bob), (39 + stride, 56), 3, scale)
+
+    pygame.draw.polygon(
+        canvas,
+        armor,
+        _scale_points([(21, 23 + bob), (42, 22 + bob), (48, 43), (39, 52), (28, 51), (18, 43)], scale),
+    )
+    pygame.draw.polygon(canvas, hide, _scale_points([(25, 25 + bob), (40, 25 + bob), (43, 41), (33, 46), (23, 40)], scale))
+    _draw_line(canvas, acid, (25, 31 + bob), (41, 42), 2.2, scale)
+    _draw_line(canvas, bone, (41, 28 + bob), (47, 39), 2.4, scale)
+    _draw_line(canvas, bone, (22, 29 + bob), (16, 40), 2.4, scale)
+
+    pygame.draw.polygon(
+        canvas,
+        ink,
+        _scale_points([(20, 11 + bob), (31, 5 + bob), (43, 9 + bob), (49, 18 + bob), (42, 27 + bob), (23, 27 + bob), (16, 19 + bob)], scale),
+    )
+    pygame.draw.polygon(
+        canvas,
+        hide,
+        _scale_points([(22, 12 + bob), (32, 7 + bob), (41, 11 + bob), (45, 18 + bob), (39, 24 + bob), (24, 24 + bob), (20, 18 + bob)], scale),
+    )
+    pygame.draw.polygon(canvas, red, _scale_points([(22, 16 + bob), (42, 16 + bob), (40, 20 + bob), (23, 20 + bob)], scale))
+    _draw_line(canvas, acid, (28, 25 + bob), (38, 25 + bob), 2, scale)
+    pygame.draw.circle(canvas, acid, (int(21 * scale), int((31 + bob) * scale)), int(3 * scale))
+    pygame.draw.circle(canvas, acid, (int(45 * scale), int((31 + bob) * scale)), int(3 * scale))
+
+    sprite = _downscale_sprite(canvas, ENEMY_SIZE)
+    return sprite if facing > 0 else pygame.transform.flip(sprite, True, False)
+
+
+def generate_player_sequence(count: int, facing: int) -> list[pygame.Surface]:
+    return [generate_player_frame(index, facing) for index in range(count)]
+
+
+def generate_enemy_sequence(count: int, facing: int) -> list[pygame.Surface]:
+    return [generate_enemy_frame(index, facing) for index in range(count)]
+
+
+def decorate_sequence(frames: list[pygame.Surface], role: str, facing: int = 1) -> list[pygame.Surface]:
+    if role == "player":
+        return generate_player_sequence(len(frames), facing)
+    if role == "enemy":
+        return generate_enemy_sequence(len(frames), facing)
+    return frames
+
+
 def load_sound(name: str) -> pygame.mixer.Sound | NullSound:
     if pygame.mixer.get_init() is None:
         return NullSound()
@@ -390,10 +677,10 @@ def load_assets() -> Assets:
     icon = load_image("1313.jpg", size=(64, 64), alpha=False) if icon_path.exists() else None
     blaster = load_sound("Blastersound.wav")
     return Assets(
-        player_right=load_sequence("R", 9, PLAYER_SIZE),
-        player_left=load_sequence("L", 9, PLAYER_SIZE),
-        enemy_right=load_sequence("R", 11, ENEMY_SIZE, "E"),
-        enemy_left=load_sequence("L", 11, ENEMY_SIZE, "E"),
+        player_right=decorate_sequence(load_sequence("R", 9, PLAYER_SIZE), "player", facing=1),
+        player_left=decorate_sequence(load_sequence("L", 9, PLAYER_SIZE), "player", facing=-1),
+        enemy_right=decorate_sequence(load_sequence("R", 11, ENEMY_SIZE, "E"), "enemy", facing=1),
+        enemy_left=decorate_sequence(load_sequence("L", 11, ENEMY_SIZE, "E"), "enemy", facing=-1),
         bg=bg,
         icon=icon,
         blaster=blaster,
@@ -1408,9 +1695,11 @@ class Game:
             frame = frames[0]
         if p.invuln > 0 and int(p.invuln * 18) % 2 == 0:
             return
+        pygame.draw.ellipse(self.screen, (0, 0, 0, 120), (p.rect.left - 5, p.rect.bottom - 8, 43, 11))
         if p.shield > 0:
             pygame.draw.ellipse(self.screen, PALETTE["blue"], p.full_rect().inflate(12, 8), 2)
         self.screen.blit(frame, p.sprite_pos)
+        pygame.draw.line(self.screen, PALETTE["cyan"], (p.rect.left + 7, p.rect.top + 19), (p.rect.right - 4, p.rect.top + 19), 2)
         if p.dash_timer > 0:
             tail_x = p.rect.centerx - p.facing * 35
             pygame.draw.line(self.screen, PALETTE["cyan"], (tail_x, p.rect.centery), p.rect.center, 4)
@@ -1423,7 +1712,16 @@ class Game:
             tint.fill((255, 255, 255, 100))
             frame = frame.copy()
             frame.blit(tint, (0, 0))
+        pygame.draw.ellipse(self.screen, (0, 0, 0, 120), (enemy.rect.left - 7, enemy.rect.bottom - 8, 47, 11))
         self.screen.blit(frame, (int(enemy.x), int(enemy.y)))
+        stripe_y = enemy.rect.top + 25
+        if enemy.kind == "brute":
+            pygame.draw.rect(self.screen, enemy.color, enemy.full_rect().inflate(8, -16), 2, border_radius=5)
+            pygame.draw.line(self.screen, enemy.color, (enemy.rect.left - 3, stripe_y), (enemy.rect.right + 3, stripe_y), 3)
+        elif enemy.kind == "scout":
+            pygame.draw.circle(self.screen, enemy.color, (enemy.rect.centerx, enemy.rect.top + 18), 8, 2)
+        else:
+            pygame.draw.line(self.screen, enemy.color, (enemy.rect.left, stripe_y), (enemy.rect.right, stripe_y), 2)
         if self.player.scan_timer > 0:
             pygame.draw.rect(self.screen, PALETTE["blue"], enemy.full_rect().inflate(10, 10), 2, border_radius=5)
         if enemy.state in {"chase", "investigate"}:
@@ -1498,7 +1796,7 @@ class Game:
         dim.fill((6, 9, 13, 190))
         self.screen.blit(dim, (0, 0))
         self.draw_text("Choose Contract", 318, 92, PALETTE["text"], self.big_font)
-        self.draw_text("1 / 2 / 3 selects. Contracts reshape the next level.", 292, 154, PALETTE["muted"], self.font)
+        self.draw_text("Keys 1, 2, 3 select. Contracts reshape the next level.", 248, 154, PALETTE["muted"], self.font)
         for index, contract in enumerate(self.pending_contracts):
             rect = pygame.Rect(112 + index * 252, 218, 226, 170)
             pygame.draw.rect(self.screen, PALETTE["panel"], rect, border_radius=8)
