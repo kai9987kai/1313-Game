@@ -1286,6 +1286,8 @@ class Game:
         self.draw_hud()
         if self.mode == "menu":
             self.draw_menu()
+        elif self.mode == "contract":
+            self.draw_contracts()
         elif self.mode == "paused":
             self.draw_overlay("Paused", "P or Esc to resume   R to restart")
         elif self.mode == "about":
@@ -1336,6 +1338,11 @@ class Game:
             pygame.draw.circle(ring, (*ping.color, alpha), (diameter // 2 + 2, diameter // 2 + 2), int(ping.radius), 2)
             self.screen.blit(ring, (int(ping.x - ping.radius - 2), int(ping.y - ping.radius - 2)))
 
+        for hazard in self.hazards:
+            self.draw_hazard(hazard)
+        nearest_device = self.nearest_device()
+        for device in self.devices:
+            self.draw_device(device, device is nearest_device)
         for pickup in self.pickups:
             pickup.draw(self.screen)
         for bullet in self.bullets:
@@ -1355,6 +1362,42 @@ class Game:
         self.draw_player()
         for particle in self.particles:
             pygame.draw.circle(self.screen, particle.color, (int(particle.x), int(particle.y)), int(particle.radius))
+
+    def draw_hazard(self, hazard: Hazard) -> None:
+        active = hazard.active(self.time_alive)
+        color = PALETTE["red"] if hazard.kind == "spark" else PALETTE["cyan"]
+        alpha = 160 if active else 54
+        layer = pygame.Surface((hazard.rect.width, hazard.rect.height), pygame.SRCALPHA)
+        if hazard.kind == "spark":
+            pygame.draw.rect(layer, (*color, alpha), layer.get_rect(), border_radius=5)
+            for x in range(6, hazard.rect.width, 18):
+                pygame.draw.line(layer, (255, 244, 190, alpha), (x, 4), (x + 8, hazard.rect.height - 4), 2)
+        else:
+            pygame.draw.ellipse(layer, (*color, alpha), layer.get_rect())
+            if active:
+                for x in range(6, hazard.rect.width, 12):
+                    pygame.draw.line(layer, (240, 252, 255, 150), (x, hazard.rect.height), (x + 5, 0), 2)
+        self.screen.blit(layer, hazard.rect.topleft)
+        pygame.draw.rect(self.screen, color if active else PALETTE["muted"], hazard.rect, 1, border_radius=5)
+
+    def draw_device(self, device: Device, nearby: bool) -> None:
+        base = PALETTE["green"] if device.hacked else PALETTE["panel_soft"]
+        accent = {
+            "relay": PALETTE["amber"],
+            "turret": PALETTE["blue"],
+            "vent": PALETTE["cyan"],
+        }.get(device.kind, PALETTE["text"])
+        pygame.draw.rect(self.screen, (5, 7, 10), device.rect.inflate(5, 5), border_radius=5)
+        pygame.draw.rect(self.screen, base, device.rect, border_radius=5)
+        pygame.draw.rect(self.screen, accent, device.rect, 2, border_radius=5)
+        marker = {"relay": "R", "turret": "T", "vent": "V"}.get(device.kind, "?")
+        self.draw_text(marker, device.rect.centerx - 5, device.rect.centery - 10, PALETTE["text"], self.small_font)
+        if device.pulse > 0 and not self.reduced_motion:
+            radius = int(34 + device.pulse * 35)
+            pygame.draw.circle(self.screen, accent, device.rect.center, radius, 2)
+        if nearby:
+            pygame.draw.rect(self.screen, PALETTE["text"], device.rect.inflate(10, 10), 1, border_radius=6)
+            self.draw_text("F", device.rect.centerx - 4, device.rect.top - 20, PALETTE["text"], self.small_font)
 
     def draw_player(self) -> None:
         p = self.player
@@ -1436,7 +1479,7 @@ class Game:
             border_radius=4,
         )
         self.draw_text("D", pressure_rect.left - 13, 10, pressure_color, self.small_font)
-        self.draw_text("M F1 H V", 856, 12, PALETTE["muted"], self.small_font)
+        self.draw_text("F use M H V", 836, 12, PALETTE["muted"], self.small_font)
 
         if self.message_timer > 0:
             self.draw_text(self.message, 18, 48, PALETTE["text"], self.font)
@@ -1446,9 +1489,36 @@ class Game:
     def draw_menu(self) -> None:
         self.draw_overlay(
             "1313: Underworld Run",
-            "Enter start   A/D move   W jump   Space blaster   Shift dash   E scan   Q vent",
+            "Enter start   A/D move   W jump   Space blaster   Shift dash   E scan   Q vent   F use",
             footer="Heat changes shot tiers. Noise pulls patrols. H contrast, V reduced effects.",
         )
+
+    def draw_contracts(self) -> None:
+        dim = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
+        dim.fill((6, 9, 13, 190))
+        self.screen.blit(dim, (0, 0))
+        self.draw_text("Choose Contract", 318, 92, PALETTE["text"], self.big_font)
+        self.draw_text("1 / 2 / 3 selects. Contracts reshape the next level.", 292, 154, PALETTE["muted"], self.font)
+        for index, contract in enumerate(self.pending_contracts):
+            rect = pygame.Rect(112 + index * 252, 218, 226, 170)
+            pygame.draw.rect(self.screen, PALETTE["panel"], rect, border_radius=8)
+            pygame.draw.rect(self.screen, PALETTE["amber"], rect, 2, border_radius=8)
+            self.draw_text(str(index + 1), rect.left + 14, rect.top + 12, PALETTE["amber"], self.font)
+            self.draw_text(str(contract["name"]), rect.left + 42, rect.top + 16, PALETTE["text"], self.small_font)
+            words = str(contract["body"]).split()
+            lines: list[str] = []
+            line = ""
+            for word in words:
+                candidate = f"{line} {word}".strip()
+                if len(candidate) > 25:
+                    lines.append(line)
+                    line = word
+                else:
+                    line = candidate
+            if line:
+                lines.append(line)
+            for line_index, text in enumerate(lines[:4]):
+                self.draw_text(text, rect.left + 18, rect.top + 66 + line_index * 24, PALETTE["muted"], self.small_font)
 
     def draw_overlay(self, title: str, body: str, footer: str | None = None) -> None:
         dim = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
@@ -1509,10 +1579,32 @@ class Game:
             "bullet_tiers": [bullet.tier for bullet in self.bullets],
             "noise_pings": len(self.noise_pings),
             "pickups": [pickup.kind for pickup in self.pickups],
+            "devices": [
+                {
+                    "kind": device.kind,
+                    "hacked": device.hacked,
+                    "cooldown": round(device.cooldown, 2),
+                }
+                for device in self.devices
+            ],
+            "hazards": [
+                {
+                    "kind": hazard.kind,
+                    "active": hazard.active(self.time_alive),
+                    "x": hazard.rect.x,
+                    "y": hazard.rect.y,
+                }
+                for hazard in self.hazards
+            ],
             "director": {
                 "pressure": round(self.director.pressure, 2),
                 "spawn_timer": round(self.director.spawn_timer, 2),
                 "event": self.director.event if self.director.event_timer > 0 else "",
+            },
+            "contracts": {
+                "active": self.active_contracts,
+                "pending": [str(contract["name"]) for contract in self.pending_contracts],
+                "mods": {key: round(float(value), 2) for key, value in self.mods.items()},
             },
             "accessibility": {
                 "high_contrast": self.high_contrast,
@@ -1545,6 +1637,10 @@ def run_smoke_test(frames: int = 420) -> int:
     scan_used = False
     vent_used = False
     director_triggered = False
+    device_used = False
+    hazard_affected_enemy = False
+    contract_accepted = False
+    noise_system_active = False
     bullet_tiers: set[str] = set()
     for frame in range(frames):
         inputs = InputState(
@@ -1568,9 +1664,36 @@ def run_smoke_test(frames: int = 420) -> int:
             vent_used = True
         if game.director.event or len(game.enemies) > len(LEVELS[0]["enemies"]):
             director_triggered = True
+        if game.noise_pings or any(enemy.state != "patrol" for enemy in game.enemies):
+            noise_system_active = True
         bullet_tiers.update(bullet.tier for bullet in game.bullets)
         if game.mode in {"game_over", "victory"}:
             break
+
+    if game.mode == "playing" and game.devices:
+        device = game.devices[0]
+        game.player.x = float(device.rect.centerx - 32)
+        game.player.y = float(device.rect.centery - 36)
+        game.player.focus = game.player.max_focus
+        game.step(1 / FPS, InputState(interact=True))
+        device_used = device.hacked or device.cooldown > 0
+
+    if game.mode == "playing" and game.hazards and game.enemies:
+        hazard = game.hazards[0]
+        enemy = game.enemies[0]
+        enemy.x = float(hazard.rect.centerx - 32)
+        enemy.y = float(hazard.rect.centery - 35)
+        hazard.phase = 0
+        hazard.period = 10
+        hazard.active_time = 10
+        before_health = enemy.health
+        game.update_hazards(1 / FPS)
+        hazard_affected_enemy = enemy not in game.enemies or enemy.health < before_health or enemy.stun_timer > 0
+
+    if game.mode == "playing":
+        game.open_contracts(1)
+        game.accept_contract(0)
+        contract_accepted = bool(game.active_contracts) and game.level_index == 1
 
     snapshot = game.state_snapshot()
     assertions = {
@@ -1582,8 +1705,11 @@ def run_smoke_test(frames: int = 420) -> int:
         "scan_used": scan_used,
         "vent_used": vent_used,
         "director_triggered": director_triggered,
+        "device_used": device_used,
+        "hazard_affected_enemy": hazard_affected_enemy,
+        "contract_accepted": contract_accepted,
         "heat_tiers_seen": bool({"piercing", "volatile"} & bullet_tiers),
-        "noise_system_active": bool(game.noise_pings) or any(enemy.state != "patrol" for enemy in game.enemies),
+        "noise_system_active": noise_system_active,
         "mode_valid": game.mode in {"playing", "game_over", "victory"},
     }
     snapshot["observed_bullet_tiers"] = sorted(bullet_tiers)
