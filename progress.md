@@ -12,6 +12,8 @@ Original prompt: innovate advance improve evole and expermiment and optermise us
 - Visual QA caught a wrong enemy asset sequence (`R10.png`/`R11.png` fallback instead of `R10E.png`/`R11E.png`), fixed via the `load_sequence(..., suffix="E")` path. Standard and high-contrast/reduced-effects render passes were inspected after the fix.
 - Third pass added interactable devices (`F` for relays, turrets, coolant vents), timed hazards that affect player and enemies, and between-level contracts with persistent run modifiers. Smoke coverage now asserts device use, hazard impact, and contract acceptance.
 - Character art pass now generates higher-quality themed character frames in memory: armored underworld runner with helmet/visor/coat/gear and masked syndicate enemies with sharper silhouettes, faction accents, and grounded shadows. Original PNG assets remain untouched.
+- Whole-game feel pass added floating combat text, impact shake with reduced-motion respect, objective text, run telemetry, smoke-test assertions for feedback/stat tracking, and a victory rank summary.
+- Removed runtime dependency on legacy sprite PNGs. Player and enemy animation frames are now generated procedurally; old sprite PNGs, `standing.png`, and smoke PNG artifacts were deleted.
 
 ## TODO / Suggestions
 

@@ -409,72 +409,6 @@ def load_image(name: str, size: tuple[int, int] | None = None, alpha: bool = Tru
     return image
 
 
-def load_sequence(prefix: str, count: int, size: tuple[int, int], suffix: str = "") -> list[pygame.Surface]:
-    return [load_image(f"{prefix}{i}{suffix}.png", size=size) for i in range(1, count + 1)]
-
-
-def outlined_sprite(source: pygame.Surface, color: tuple[int, int, int] = (4, 6, 9)) -> pygame.Surface:
-    outline = source.copy()
-    outline.fill((*color, 230), special_flags=pygame.BLEND_RGBA_MIN)
-    result = pygame.Surface(source.get_size(), pygame.SRCALPHA)
-    for dx, dy in ((-2, 0), (2, 0), (0, -2), (0, 2), (-1, -1), (1, -1), (-1, 1), (1, 1)):
-        result.blit(outline, (dx, dy))
-    result.blit(source, (0, 0))
-    return result
-
-
-def decorate_player_frame(source: pygame.Surface, facing: int, frame_index: int) -> pygame.Surface:
-    frame = outlined_sprite(source)
-    visor = PALETTE["cyan"]
-    armor = (46, 57, 67, 178)
-    trim = PALETTE["amber"]
-    dark = (9, 13, 19, 168)
-
-    backpack_x = 14 if facing > 0 else 42
-    pygame.draw.rect(frame, dark, (backpack_x, 20, 8, 25), border_radius=2)
-    pygame.draw.line(frame, visor, (backpack_x + 4, 23), (backpack_x + 4, 41), 2)
-
-    pygame.draw.polygon(frame, armor, [(22, 9), (40, 8), (45, 15), (41, 23), (23, 23), (18, 15)])
-    if facing > 0:
-        pygame.draw.line(frame, visor, (29, 15), (43, 15), 3)
-        pygame.draw.line(frame, (235, 248, 250), (39, 14), (43, 14), 1)
-    else:
-        pygame.draw.line(frame, visor, (21, 15), (36, 15), 3)
-        pygame.draw.line(frame, (235, 248, 250), (21, 14), (26, 14), 1)
-
-    pygame.draw.rect(frame, armor, (23, 26, 18, 15), border_radius=3)
-    pygame.draw.line(frame, trim, (24, 29), (40, 29), 2)
-    pygame.draw.line(frame, visor, (32, 31), (32, 39), 2)
-    pygame.draw.rect(frame, dark, (20, 42, 25, 5), border_radius=2)
-    pygame.draw.rect(frame, trim, (30, 42, 7, 5), border_radius=1)
-    pygame.draw.circle(frame, trim, (20, 28), 5)
-    pygame.draw.circle(frame, trim, (44, 28), 5)
-    pygame.draw.line(frame, armor, (19, 47), (16, 58), 4)
-    pygame.draw.line(frame, armor, (42, 47), (46, 58), 4)
-
-    if frame_index % 3 == 0:
-        glow = pygame.Surface(frame.get_size(), pygame.SRCALPHA)
-        pygame.draw.circle(glow, (*visor, 42), (32, 34), 23)
-        frame.blit(glow, (0, 0))
-    return frame
-
-
-def decorate_enemy_frame(source: pygame.Surface) -> pygame.Surface:
-    frame = outlined_sprite(source, (3, 7, 5))
-    armor = (22, 32, 26, 170)
-    acid = (151, 229, 83)
-    red = PALETTE["red"]
-    pygame.draw.polygon(frame, armor, [(20, 10), (40, 10), (46, 17), (40, 25), (21, 24), (16, 17)])
-    pygame.draw.line(frame, red, (22, 16), (42, 16), 3)
-    pygame.draw.line(frame, acid, (26, 28), (39, 42), 3)
-    pygame.draw.rect(frame, armor, (22, 26, 20, 17), border_radius=3)
-    pygame.draw.circle(frame, acid, (20, 30), 4)
-    pygame.draw.circle(frame, acid, (43, 30), 4)
-    pygame.draw.line(frame, (7, 12, 8), (18, 46), (15, 57), 4)
-    pygame.draw.line(frame, (7, 12, 8), (43, 46), (47, 57), 4)
-    return frame
-
-
 def _scale_points(points: Iterable[tuple[float, float]], scale: int) -> list[tuple[int, int]]:
     return [(int(x * scale), int(y * scale)) for x, y in points]
 
@@ -547,13 +481,27 @@ def generate_player_frame(index: int, facing: int) -> pygame.Surface:
     )
     pygame.draw.polygon(
         canvas,
+        (10, 14, 20, 210),
+        _scale_points([(18, 28 + bob), (25, 27 + bob), (23, 52), (15, 50)], scale),
+    )
+    pygame.draw.polygon(
+        canvas,
+        (96, 64, 45, 230),
+        _scale_points([(42, 27 + bob), (49, 30 + bob), (50, 50), (42, 54)], scale),
+    )
+    pygame.draw.polygon(
+        canvas,
         undersuit,
         _scale_points([(23, 23 + bob), (43, 23 + bob), (46, 42), (38, 48), (28, 48), (20, 42)], scale),
     )
+    pygame.draw.circle(canvas, armor_dark, (int(22 * scale), int((29 + bob) * scale)), int(5 * scale))
+    pygame.draw.circle(canvas, armor_dark, (int(44 * scale), int((29 + bob) * scale)), int(5 * scale))
     pygame.draw.rect(canvas, armor, _rect(24, 27 + bob, 18, 15, scale), border_radius=3 * scale)
     pygame.draw.polygon(canvas, armor_dark, _scale_points([(24, 27 + bob), (31, 25 + bob), (31, 42), (24, 42)], scale))
     _draw_line(canvas, amber, (26, 32 + bob), (41, 32 + bob), 2, scale)
     _draw_line(canvas, cyan, (33, 34 + bob), (33, 42 + bob), 1.7, scale)
+    pygame.draw.rect(canvas, ink, _rect(25, 43 + bob, 17, 5, scale), border_radius=2 * scale)
+    pygame.draw.rect(canvas, amber, _rect(31, 43 + bob, 5, 5, scale), border_radius=scale)
 
     backpack_x = 15 if facing > 0 else 43
     pygame.draw.rect(canvas, ink, _rect(backpack_x, 24 + bob, 7, 23, scale), border_radius=2 * scale)
@@ -576,6 +524,8 @@ def generate_player_frame(index: int, facing: int) -> pygame.Surface:
         armor,
         _scale_points([(24, 11 + bob), (33, 7 + bob), (42, 11 + bob), (45, 17 + bob), (41, 22 + bob), (24, 22 + bob), (21, 17 + bob)], scale),
     )
+    _draw_line(canvas, cyan, (36, 8 + bob), (38, 4 + bob), 1.4, scale)
+    pygame.draw.circle(canvas, cyan, (int(38 * scale), int((4 + bob) * scale)), int(1.8 * scale))
     if facing > 0:
         visor_points = [(30, 15 + bob), (44, 15 + bob), (42, 19 + bob), (29, 19 + bob)]
         shine = (40, 14 + bob, 43, 14 + bob)
@@ -586,6 +536,7 @@ def generate_player_frame(index: int, facing: int) -> pygame.Surface:
     _draw_line(canvas, white, (shine[0], shine[1]), (shine[2], shine[3]), 1, scale)
     pygame.draw.circle(canvas, amber, (int(26 * scale), int((23 + bob) * scale)), int(2 * scale))
     pygame.draw.circle(canvas, amber, (int(40 * scale), int((23 + bob) * scale)), int(2 * scale))
+    _draw_line(canvas, (255, 222, 116, 255), (48, 37 + bob), (55, 37 + bob), 1.4, scale)
 
     sprite = _downscale_sprite(canvas, PLAYER_SIZE)
     return sprite if output_facing > 0 else pygame.transform.flip(sprite, True, False)
@@ -619,6 +570,16 @@ def generate_enemy_frame(index: int, facing: int) -> pygame.Surface:
         armor,
         _scale_points([(21, 23 + bob), (42, 22 + bob), (48, 43), (39, 52), (28, 51), (18, 43)], scale),
     )
+    pygame.draw.polygon(
+        canvas,
+        armor_light,
+        _scale_points([(22, 24 + bob), (30, 22 + bob), (28, 45), (20, 42)], scale),
+    )
+    pygame.draw.polygon(
+        canvas,
+        (12, 20, 16, 255),
+        _scale_points([(40, 24 + bob), (47, 31 + bob), (48, 43), (40, 50)], scale),
+    )
     pygame.draw.polygon(canvas, hide, _scale_points([(25, 25 + bob), (40, 25 + bob), (43, 41), (33, 46), (23, 40)], scale))
     _draw_line(canvas, acid, (25, 31 + bob), (41, 42), 2.2, scale)
     _draw_line(canvas, bone, (41, 28 + bob), (47, 39), 2.4, scale)
@@ -634,6 +595,8 @@ def generate_enemy_frame(index: int, facing: int) -> pygame.Surface:
         hide,
         _scale_points([(22, 12 + bob), (32, 7 + bob), (41, 11 + bob), (45, 18 + bob), (39, 24 + bob), (24, 24 + bob), (20, 18 + bob)], scale),
     )
+    pygame.draw.polygon(canvas, bone, _scale_points([(22, 12 + bob), (16, 8 + bob), (21, 17 + bob)], scale))
+    pygame.draw.polygon(canvas, bone, _scale_points([(42, 11 + bob), (49, 7 + bob), (44, 17 + bob)], scale))
     pygame.draw.polygon(canvas, red, _scale_points([(22, 16 + bob), (42, 16 + bob), (40, 20 + bob), (23, 20 + bob)], scale))
     _draw_line(canvas, acid, (28, 25 + bob), (38, 25 + bob), 2, scale)
     pygame.draw.circle(canvas, acid, (int(21 * scale), int((31 + bob) * scale)), int(3 * scale))
@@ -649,14 +612,6 @@ def generate_player_sequence(count: int, facing: int) -> list[pygame.Surface]:
 
 def generate_enemy_sequence(count: int, facing: int) -> list[pygame.Surface]:
     return [generate_enemy_frame(index, facing) for index in range(count)]
-
-
-def decorate_sequence(frames: list[pygame.Surface], role: str, facing: int = 1) -> list[pygame.Surface]:
-    if role == "player":
-        return generate_player_sequence(len(frames), facing)
-    if role == "enemy":
-        return generate_enemy_sequence(len(frames), facing)
-    return frames
 
 
 def load_sound(name: str) -> pygame.mixer.Sound | NullSound:
@@ -677,10 +632,10 @@ def load_assets() -> Assets:
     icon = load_image("1313.jpg", size=(64, 64), alpha=False) if icon_path.exists() else None
     blaster = load_sound("Blastersound.wav")
     return Assets(
-        player_right=decorate_sequence(load_sequence("R", 9, PLAYER_SIZE), "player", facing=1),
-        player_left=decorate_sequence(load_sequence("L", 9, PLAYER_SIZE), "player", facing=-1),
-        enemy_right=decorate_sequence(load_sequence("R", 11, ENEMY_SIZE, "E"), "enemy", facing=1),
-        enemy_left=decorate_sequence(load_sequence("L", 11, ENEMY_SIZE, "E"), "enemy", facing=-1),
+        player_right=generate_player_sequence(9, facing=1),
+        player_left=generate_player_sequence(9, facing=-1),
+        enemy_right=generate_enemy_sequence(11, facing=1),
+        enemy_left=generate_enemy_sequence(11, facing=-1),
         bg=bg,
         icon=icon,
         blaster=blaster,
@@ -1992,6 +1947,23 @@ class Game:
                 "pending": [str(contract["name"]) for contract in self.pending_contracts],
                 "mods": {key: round(float(value), 2) for key, value in self.mods.items()},
             },
+            "feedback": {
+                "floating_texts": len(self.floating_texts),
+                "shake": round(self.shake, 2),
+            },
+            "stats": {
+                "time": round(self.stats.time, 2),
+                "shots": self.stats.shots,
+                "hits": self.stats.hits,
+                "defeats": self.stats.defeats,
+                "damage_taken": self.stats.damage_taken,
+                "pickups": self.stats.pickups,
+                "devices": self.stats.devices,
+                "hazards": self.stats.hazards,
+                "contracts": self.stats.contracts,
+                "overheats": self.stats.overheats,
+                "rank": self.stats.rank(self.score, len(LEVELS)),
+            },
             "accessibility": {
                 "high_contrast": self.high_contrast,
                 "reduced_motion": self.reduced_motion,
@@ -2027,6 +1999,7 @@ def run_smoke_test(frames: int = 420) -> int:
     hazard_affected_enemy = False
     contract_accepted = False
     noise_system_active = False
+    feedback_active = False
     bullet_tiers: set[str] = set()
     for frame in range(frames):
         inputs = InputState(
@@ -2052,6 +2025,8 @@ def run_smoke_test(frames: int = 420) -> int:
             director_triggered = True
         if game.noise_pings or any(enemy.state != "patrol" for enemy in game.enemies):
             noise_system_active = True
+        if game.floating_texts or game.shake > 0:
+            feedback_active = True
         bullet_tiers.update(bullet.tier for bullet in game.bullets)
         if game.mode in {"game_over", "victory"}:
             break
@@ -2094,6 +2069,8 @@ def run_smoke_test(frames: int = 420) -> int:
         "device_used": device_used,
         "hazard_affected_enemy": hazard_affected_enemy,
         "contract_accepted": contract_accepted,
+        "feedback_active": feedback_active,
+        "stats_tracking": game.stats.shots > 0 and game.stats.time > 0 and game.stats.contracts > 0,
         "heat_tiers_seen": bool({"piercing", "volatile"} & bullet_tiers),
         "noise_system_active": noise_system_active,
         "mode_valid": game.mode in {"playing", "game_over", "victory"},
